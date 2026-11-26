@@ -75,7 +75,7 @@ async function sendMessage(text) {
     });
     let data;
     try { data = await response.json(); } catch { throw new Error('The chat service returned an unreadable response. Please try again.'); }
-    if (!response.ok) throw new Error(response.status === 429 ? 'The advisor is busy. Please wait a moment and try again.' : 'The chat service could not answer. Please try again shortly.');
+    if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : response.status === 429 ? 'The advisor is busy. Please wait a moment and try again.' : 'The chat service could not answer. Please try again shortly.');
     const reply = data.choices?.[0]?.message?.content;
     if (typeof reply !== 'string' || !reply.trim()) throw new Error('No answer was returned. Please try again.');
     if (activeRequest !== controller) return;

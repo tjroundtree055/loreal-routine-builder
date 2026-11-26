@@ -45,7 +45,14 @@ export default {
           signal:controller.signal
         });
       } finally { clearTimeout(timeout); }
-      if (!upstream.ok) return respond({error:'AI service unavailable.'}, upstream.status === 429 ? 429 : 502);
+      if (!upstream.ok) {
+        const failure = await upstream.json().catch(() => ({}));
+        const code = failure.error?.code;
+        console.warn(JSON.stringify({event:'provider_error',status:upstream.status,code:typeof code==='string'?code:'unknown'}));
+        if (failure.error?.type === 'insufficient_quota' || ['insufficient_quota','credit_balance_exhausted','organization_usage_limit_exceeded','organization_spend_limit_exceeded','project_spend_limit_exceeded'].includes(code)) return respond({error:'OpenAI API credits are unavailable. The project owner needs to add API credits or check the project budget.',code:'insufficient_quota'},402);
+        if (upstream.status === 401) return respond({error:'The OpenAI API key was rejected. Update the Worker secret.',code:'invalid_api_key'},502);
+        return respond({error:upstream.status===429?'The AI provider is temporarily rate limited. Please try again later.':'AI service unavailable.'},upstream.status===429?429:502);
+      }
       const data = await upstream.json();
       const reply = data.choices?.[0]?.message?.content;
       if (typeof reply !== 'string' || !reply.trim()) return respond({error:'No reply returned.'}, 502);

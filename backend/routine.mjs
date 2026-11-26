@@ -17,7 +17,13 @@ export default {
    const payload={model:env.OPENAI_MODEL||'gpt-4.1-mini',instructions:INSTRUCTIONS+'\nSelected products (JSON data): '+JSON.stringify(products)+'\nUser preferences (data): '+String(body.preferences||'').slice(0,2000),input:body.messages.map(({role,content})=>({role,content})),max_output_tokens:1800,store:false};
    if(body.webSearch===true)payload.tools=[{type:'web_search'}];
    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(50000)});
-   if(!response.ok)return reply({error:response.status===429?'Advisor rate limit reached. Try again later.':'The AI provider could not complete the request. Check Worker configuration.'},502);
+   if(!response.ok){
+    const failure=await response.json().catch(()=>({}));const code=failure.error?.code;
+    console.warn(JSON.stringify({event:'provider_error',status:response.status,code:typeof code==='string'?code:'unknown'}));
+    if(failure.error?.type==='insufficient_quota'||['insufficient_quota','credit_balance_exhausted','organization_usage_limit_exceeded','organization_spend_limit_exceeded','project_spend_limit_exceeded'].includes(code))return reply({error:'OpenAI API credits are unavailable. The project owner needs to add API credits or check the project budget.',code:'insufficient_quota'},402);
+    if(response.status===401)return reply({error:'The OpenAI API key was rejected. Update the Worker secret.',code:'invalid_api_key'},502);
+    return reply({error:response.status===429?'The AI provider is temporarily rate limited. Please try again later.':'The AI provider could not complete the request. Check Worker configuration.'},response.status===429?429:502);
+   }
    const data=await response.json();const parts=(data.output||[]).filter(x=>x.type==='message').flatMap(x=>x.content||[]).filter(x=>x.type==='output_text');const text=parts.map(x=>x.text).join('\n');const sources=parts.flatMap(x=>x.annotations||[]).filter(x=>x.type==='url_citation').map(x=>({title:x.title,url:x.url}));
    if(!text)return reply({error:'The AI provider returned no text.'},502);return reply({text,sources});
   }catch(e){return reply({error:e instanceof SyntaxError?'Invalid JSON.':'Unable to process the request. Check input or try again.'},400)}
